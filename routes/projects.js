@@ -1,22 +1,30 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db');
+const { Project, Task, User } = require('../db');
 const { authenticateToken, checkProjectAccess, requireProjectAdmin } = require('../middleware/auth');
 
 // GET all projects current user is member of
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const projects = await db.all(
-      `SELECT p.id, p.name, p.description, p.creator_id, p.created_at, pm.role,
-       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id) as member_count,
-       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
-       FROM projects p
-       JOIN project_members pm ON p.id = pm.project_id
-       WHERE pm.user_id = ?
-       ORDER BY p.created_at DESC`,
-      [req.user.id]
-    );
-    res.json(projects);
+    const projects = await Project.find({ 'members.user_id': req.user.id }).sort({ created_at: -1 });
+
+    const formattedProjects = await Promise.all(projects.map(async (p) => {
+      const memberCount = p.members.length;
+      const taskCount = await Task.countDocuments({ project_id: p._id });
+      const userMember = p.members.find(m => m.user_id.toString() === req.user.id.toString());
+      return {
+        id: p._id.toString(),
+        name: p.name,
+        description: p.description,
+        creator_id: p.creator_id.toString(),
+        created_at: p.created_at,
+        role: userMember ? userMember.role : 'Member',
+        member_count: memberCount,
+        task_count: taskCount
+      };
+    }));
+
+    res.json(formattedProjects);
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.status(500).json({ error: 'Server error fetching projects.' });
@@ -32,22 +40,20 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 
   try {
-    const projectResult = await db.run(
-      'INSERT INTO projects (name, description, creator_id) VALUES (?, ?, ?)',
-      [name.trim(), description ? description.trim() : '', req.user.id]
-    );
-    const projectId = projectResult.id;
-
-    await db.run(
-      'INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)',
-      [projectId, req.user.id, 'Admin']
-    );
-
-    res.status(201).json({
-      id: projectId,
+    const project = new Project({
       name: name.trim(),
       description: description ? description.trim() : '',
       creator_id: req.user.id,
+      members: [{ user_id: req.user.id, role: 'Admin' }]
+    });
+
+    await project.save();
+
+    res.status(201).json({
+      id: project._id.toString(),
+      name: project.name,
+      description: project.description,
+      creator_id: project.creator_id.toString(),
       role: 'Admin'
     });
   } catch (error) {
@@ -59,22 +65,28 @@ router.post('/', authenticateToken, async (req, res) => {
 // GET specific project details (including members)
 router.get('/:id', authenticateToken, checkProjectAccess, async (req, res) => {
   try {
-    const project = await db.get(
-      'SELECT p.id, p.name, p.description, p.creator_id, p.created_at FROM projects p WHERE p.id = ?',
-      [req.projectId]
-    );
+    const project = await Project.findById(req.projectId).populate('members.user_id', 'name email');
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
 
-    const members = await db.all(
-      `SELECT u.id, u.name, u.email, pm.role
-       FROM users u
-       JOIN project_members pm ON u.id = pm.user_id
-       WHERE pm.project_id = ?
-       ORDER BY pm.role ASC, u.name ASC`,
-      [req.projectId]
-    );
+    const members = project.members.map(m => {
+      // Handle edge cases where user might have been deleted but member record remains
+      const u = m.user_id || { _id: '', name: 'Deleted User', email: '' };
+      return {
+        id: u._id.toString(),
+        name: u.name,
+        email: u.email,
+        role: m.role
+      };
+    });
 
     res.json({
-      ...project,
+      id: project._id.toString(),
+      name: project.name,
+      description: project.description,
+      creator_id: project.creator_id.toString(),
+      created_at: project.created_at,
       role: req.projectRole,
       members
     });
@@ -95,27 +107,23 @@ router.post('/:id/members', authenticateToken, checkProjectAccess, requireProjec
   const projectRole = role === 'Admin' ? 'Admin' : 'Member';
 
   try {
-    const targetUser = await db.get('SELECT id, name, email FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const targetUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (!targetUser) {
       return res.status(404).json({ error: 'User not found. They must register first.' });
     }
 
-    const existingMember = await db.get(
-      'SELECT role FROM project_members WHERE project_id = ? AND user_id = ?',
-      [req.projectId, targetUser.id]
-    );
+    const project = await Project.findById(req.projectId);
+    const existingMember = project.members.some(m => m.user_id.toString() === targetUser._id.toString());
 
     if (existingMember) {
       return res.status(400).json({ error: 'User is already a member of this project.' });
     }
 
-    await db.run(
-      'INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)',
-      [req.projectId, targetUser.id, projectRole]
-    );
+    project.members.push({ user_id: targetUser._id, role: projectRole });
+    await project.save();
 
     res.status(201).json({
-      id: targetUser.id,
+      id: targetUser._id.toString(),
       name: targetUser.name,
       email: targetUser.email,
       role: projectRole
@@ -128,27 +136,27 @@ router.post('/:id/members', authenticateToken, checkProjectAccess, requireProjec
 
 // DELETE remove member from project (Admin only)
 router.delete('/:id/members/:userId', authenticateToken, checkProjectAccess, requireProjectAdmin, async (req, res) => {
-  const userId = parseInt(req.params.userId, 10);
+  const userId = req.params.userId;
 
   try {
-    const project = await db.get('SELECT creator_id FROM projects WHERE id = ?', [req.projectId]);
-    if (project.creator_id === userId) {
+    const project = await Project.findById(req.projectId);
+    if (project.creator_id.toString() === userId) {
       return res.status(400).json({ error: 'Cannot remove the project owner/creator.' });
     }
 
-    const result = await db.run(
-      'DELETE FROM project_members WHERE project_id = ? AND user_id = ?',
-      [req.projectId, userId]
-    );
+    const originalLength = project.members.length;
+    project.members = project.members.filter(m => m.user_id.toString() !== userId);
 
-    if (result.changes === 0) {
+    if (project.members.length === originalLength) {
       return res.status(404).json({ error: 'Member not found in this project.' });
     }
 
+    await project.save();
+
     // Unassign their tasks in this project
-    await db.run(
-      'UPDATE tasks SET assignee_id = NULL WHERE project_id = ? AND assignee_id = ?',
-      [req.projectId, userId]
+    await Task.updateMany(
+      { project_id: req.projectId, assignee_id: userId },
+      { assignee_id: null }
     );
 
     res.json({ message: 'Member removed successfully.' });

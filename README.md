@@ -13,7 +13,7 @@ It features a beautiful glassmorphic dark-theme design, dynamic analytics charts
 - **Kanban Task Board**: Group project tasks into status columns (**To Do**, **In Progress**, and **Done**), complete with priority badges and overdue flags.
 - **Role-Based Access Control (RBAC)**:
   - **Admin**: Create projects, manage team members, assign tasks, delete tasks, and edit all task fields.
-  - **Member**: Access joined projects, view assigned tasks only, and update the status of those assigned tasks. All other task properties are write-protected.
+  - **Member**: Access assigned projects, view assigned tasks only, and update the status of those assigned tasks. All other task properties are write-protected.
 - **Interactive Metrics Dashboard**: Real-time project tracking statistics:
   - Total tasks count, tasks sorted by status, and total overdue tasks.
   - Interactive **Status Distribution** doughnut chart.
@@ -24,7 +24,7 @@ It features a beautiful glassmorphic dark-theme design, dynamic analytics charts
 
 ## Tech Stack
 
-- **Backend**: Node.js, Express, SQLite (`sqlite3`)
+- **Backend**: Node.js, Express, MongoDB Atlas (`mongoose`)
 - **Frontend**: Single Page Application (SPA) using HTML5, modern ES Modules, and Vanilla CSS variables (frosted glass, glowing accents, and responsive layout)
 - **Visualizations**: Chart.js (via CDN)
 - **Icons & Font**: FontAwesome Icons (via CDN), Inter Font (via Google Fonts)
@@ -37,8 +37,7 @@ It features a beautiful glassmorphic dark-theme design, dynamic analytics charts
 Ethara_project/
   ├── package.json         # Project metadata and dependencies
   ├── server.js            # Express server initialization & routes configuration
-  ├── db.js                # SQLite database setup and Promise wrapper
-  ├── database.sqlite      # SQLite database file (ignored by Git)
+  ├── db.js                # MongoDB schemas & Mongoose database setup
   ├── middleware/
   │     └── auth.js        # JWT verification and RBAC guards
   ├── routes/
@@ -63,6 +62,7 @@ Ethara_project/
 ### Prerequisites
 - **Node.js** (v14.x or higher)
 - **npm** (v6.x or higher)
+- A **MongoDB Atlas** database cluster (or local MongoDB database)
 
 ### Steps
 
@@ -78,19 +78,19 @@ Ethara_project/
    ```
 
 3. **Configure Environment Variables**:
-   Create a `.env` file in the root of the project to customize port configurations and authentication security:
+   Create a `.env` file in the root of the project to customize database connections, port configurations, and authentication security:
    ```env
    PORT=5000
    JWT_SECRET=your_custom_jwt_secret_phrase
+   MONGODB_URI=mongodb+srv://username:password@cluster0.mongodb.net/teamflow?retryWrites=true&w=majority
    ```
-   *(If no `.env` is provided, the server defaults to port `5000` and a default fallback secret is used).*
 
 4. **Start the Application**:
    - For standard execution:
      ```bash
      npm start
      ```
-   - For development auto-refresh (if you install `nodemon` globally):
+   - For development auto-refresh (if you have `nodemon` installed):
      ```bash
      npm run dev
      ```
@@ -128,7 +128,7 @@ Ethara_project/
 
 ## Production Deployment Steps
 
-### 1. Deploying to Railway
+### Deploying to Railway
 
 Railway is the deployment environment for this full-stack application. Follow these instructions to launch:
 
@@ -140,30 +140,9 @@ Railway is the deployment environment for this full-stack application. Follow th
 3. **Configure Environment Variables**:
    In your service dashboard, open the **Variables** tab and add:
    - `JWT_SECRET`: A secure random secret key (e.g. `your_secret_key_phrase`).
-   - `DATABASE_PATH`: `/app/data/database.sqlite` (Points SQLite to the mounted persistent storage).
-4. **Configure Persistent Volume (Critical for SQLite)**:
-   By default, container filesystems on Railway are ephemeral. To prevent losing your database and projects when the server restarts or redeploys:
-   - Go to the **Settings** tab of your Node.js service.
-   - Scroll down to the **Volumes** section and click **Add Volume**.
-   - Set **Mount Path** to `/app/data` (this maps directly to the `DATABASE_PATH` env variable).
-   - Save changes.
-5. **Expose Public Domain**:
+   - `MONGODB_URI`: Your MongoDB Atlas connection string:
+     `mongodb+srv://pv190660_db_user:Adj9oxEfOhwupPVc@cluster0.1cnxylr.mongodb.net/teamflow?retryWrites=true&w=majority&appName=Cluster0`
+4. **Expose Public Domain**:
    - Under the **Settings** tab of the service, scroll to **Domains**.
    - Click **Generate Domain** to create a public `https://...` address.
    - Once build and deployment complete, your app is fully live and accessible!
-
----
-
-### 2. Alternative: Deploying to Render
-1. Create a new **Web Service** on Render and connect your GitHub repository.
-2. Configure settings:
-   - **Environment**: `Node`
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-3. Add **Environment Variables**:
-   - `JWT_SECRET`: A long random string.
-   - `DATABASE_PATH`: `/var/data/database.sqlite`
-4. Add a **Render Disk**:
-   - **Name**: `sqlite-storage`
-   - **Mount Path**: `/var/data`
-   - **Size**: `1 GB`

@@ -1,120 +1,59 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const mongoose = require('mongoose');
 
-const fs = require('fs');
-
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'database.sqlite');
-
-// Ensure the parent directory of the database file exists
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
-}
-
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Could not connect to SQLite database:', err);
-  } else {
-    console.log('Connected to SQLite database at:', dbPath);
-  }
-});
-
-// Helper functions to return promises
-function run(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
-    });
-  });
-}
-
-function get(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
-}
-
-function all(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://pv190660_db_user:Adj9oxEfOhwupPVc@cluster0.1cnxylr.mongodb.net/teamflow?retryWrites=true&w=majority&appName=Cluster0';
 
 async function initDb() {
   try {
-    // Enable foreign keys
-    await run('PRAGMA foreign_keys = ON;');
-
-    // Create Users table
-    await run(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Create Projects table
-    await run(`
-      CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        description TEXT,
-        creator_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE SET NULL
-      )
-    `);
-
-    // Create Project Members table (Admin or Member role)
-    await run(`
-      CREATE TABLE IF NOT EXISTS project_members (
-        project_id INTEGER,
-        user_id INTEGER,
-        role TEXT NOT NULL DEFAULT 'Member',
-        PRIMARY KEY (project_id, user_id),
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
-
-    // Create Tasks table
-    await run(`
-      CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        description TEXT,
-        due_date TEXT,
-        priority TEXT NOT NULL DEFAULT 'Medium',
-        status TEXT NOT NULL DEFAULT 'To Do',
-        assignee_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE SET NULL
-      )
-    `);
-
-    console.log('Database tables initialized successfully.');
-  } catch (error) {
-    console.error('Error initializing database tables:', error);
-    throw error;
+    await mongoose.connect(MONGODB_URI);
+    console.log('Connected to MongoDB Atlas database.');
+  } catch (err) {
+    console.error('Could not connect to MongoDB Atlas:', err);
+    throw err;
   }
 }
 
+// User Schema
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password_hash: { type: String, required: true },
+  created_at: { type: Date, default: Date.now }
+});
+
+// Project Schema
+const projectSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  description: { type: String, default: '' },
+  creator_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  members: [
+    {
+      user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      role: { type: String, enum: ['Admin', 'Member'], default: 'Member' }
+    }
+  ],
+  created_at: { type: Date, default: Date.now }
+});
+
+// Task Schema
+const taskSchema = new mongoose.Schema({
+  project_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
+  title: { type: String, required: true, trim: true },
+  description: { type: String, default: '' },
+  due_date: { type: String, default: null }, // Store as YYYY-MM-DD
+  priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' },
+  status: { type: String, enum: ['To Do', 'In Progress', 'Done'], default: 'To Do' },
+  assignee_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  created_at: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+const Project = mongoose.model('Project', projectSchema);
+const Task = mongoose.model('Task', taskSchema);
+
 module.exports = {
-  db,
-  run,
-  get,
-  all,
-  initDb
+  initDb,
+  User,
+  Project,
+  Task,
+  mongoose
 };

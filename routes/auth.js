@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../db');
+const { User } = require('../db');
 const { JWT_SECRET, authenticateToken } = require('../middleware/auth');
 
 // Signup
@@ -23,7 +23,7 @@ router.post('/signup', async (req, res) => {
   }
 
   try {
-    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
       return res.status(400).json({ error: 'A user with this email address already exists.' });
     }
@@ -31,24 +31,26 @@ router.post('/signup', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const result = await db.run(
-      'INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)',
-      [name.trim(), email.toLowerCase().trim(), passwordHash]
-    );
-
-    const userId = result.id;
-
-    // The creator becomes Member in any project, but when they create projects, we'll assign roles
-    const token = jwt.sign({ id: userId, email: email.toLowerCase().trim(), name: name.trim() }, JWT_SECRET, {
-      expiresIn: '7d'
+    const newUser = new User({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      password_hash: passwordHash
     });
+
+    await newUser.save();
+
+    const token = jwt.sign(
+      { id: newUser._id.toString(), email: newUser.email, name: newUser.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     res.status(201).json({
       token,
       user: {
-        id: userId,
-        name: name.trim(),
-        email: email.toLowerCase().trim()
+        id: newUser._id.toString(),
+        name: newUser.name,
+        email: newUser.email
       }
     });
   } catch (error) {
@@ -66,7 +68,7 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    const user = await db.get('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) {
       return res.status(400).json({ error: 'Invalid email or password.' });
     }
@@ -76,14 +78,16 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid email or password.' });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, name: user.name }, JWT_SECRET, {
-      expiresIn: '7d'
-    });
+    const token = jwt.sign(
+      { id: user._id.toString(), email: user.email, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     res.json({
       token,
       user: {
-        id: user.id,
+        id: user._id.toString(),
         name: user.name,
         email: user.email
       }
@@ -97,11 +101,18 @@ router.post('/login', async (req, res) => {
 // Get current user profile
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    const user = await db.get('SELECT id, name, email, created_at FROM users WHERE id = ?', [req.user.id]);
+    const user = await User.findById(req.user.id).select('-password_hash');
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
-    res.json({ user });
+    res.json({
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        created_at: user.created_at
+      }
+    });
   } catch (error) {
     console.error('Error getting user profile:', error);
     res.status(500).json({ error: 'Server error retrieving profile.' });

@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const db = require('../db');
+const { Project } = require('../db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_team_task_manager_key';
 
@@ -28,18 +28,24 @@ async function checkProjectAccess(req, res, next) {
     return res.status(400).json({ error: 'Project ID is required.' });
   }
 
-  try {
-    const member = await db.get(
-      'SELECT role FROM project_members WHERE project_id = ? AND user_id = ?',
-      [projectId, req.user.id]
-    );
+  // Validate ObjectId format
+  if (!projectId.match(/^[0-9a-fA-F]{24}$/)) {
+    return res.status(400).json({ error: 'Invalid Project ID format.' });
+  }
 
+  try {
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    const member = project.members.find(m => m.user_id.toString() === req.user.id.toString());
     if (!member) {
       return res.status(403).json({ error: 'Access denied. You are not a member of this project.' });
     }
 
     req.projectRole = member.role;
-    req.projectId = parseInt(projectId, 10);
+    req.projectId = projectId;
     next();
   } catch (error) {
     console.error('Error checking project access:', error);
