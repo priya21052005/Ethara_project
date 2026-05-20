@@ -128,9 +128,9 @@ Ethara_project/
 
 ## Production Deployment Steps
 
-### 1. Deploying to Railway (Mandatory Setup)
+### 1. Deploying to Railway
 
-Railway is the primary deployment environment for this full-stack application. Follow these instructions to launch:
+Railway is the deployment environment for this full-stack application. Follow these instructions to launch:
 
 1. **Create a Railway Account**: Sign in to [Railway.app](https://railway.app) using your GitHub account.
 2. **Start a New Project**:
@@ -167,25 +167,3 @@ Railway is the primary deployment environment for this full-stack application. F
    - **Name**: `sqlite-storage`
    - **Mount Path**: `/var/data`
    - **Size**: `1 GB`
-
----
-
-### 3. Alternative: Deploying to a VPS (DigitalOcean / AWS)
-1. SSH into the VPS and install Node.js, Git, and **PM2** globally:
-   ```bash
-   sudo npm install -g pm2
-   ```
-2. Clone the repository into `/var/www/teamflow` and install dependencies:
-   ```bash
-   git clone https://github.com/priya21052005/Ethara_project.git /var/www/teamflow
-   cd /var/www/teamflow
-   npm install
-   ```
-3. Configure your production environment values in a `.env` file.
-4. Launch the application daemon using PM2:
-   ```bash
-   pm2 start server.js --name "teamflow-server"
-   pm2 save
-   pm2 startup
-   ```
-5. Set up **Nginx** as a reverse proxy forwarding port `80`/`443` to local port `5000`.
