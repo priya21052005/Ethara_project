@@ -128,66 +128,64 @@ Ethara_project/
 
 ## Production Deployment Steps
 
-### 1. Deploying to Render
-Render is a cloud hosting provider that supports Node.js web services.
+### 1. Deploying to Railway (Mandatory Setup)
 
+Railway is the primary deployment environment for this full-stack application. Follow these instructions to launch:
+
+1. **Create a Railway Account**: Sign in to [Railway.app](https://railway.app) using your GitHub account.
+2. **Start a New Project**:
+   - Click **New Project** in the upper right.
+   - Select **Deploy from GitHub repo**.
+   - Search for and select your `Ethara_project` repository.
+3. **Configure Environment Variables**:
+   In your service dashboard, open the **Variables** tab and add:
+   - `JWT_SECRET`: A secure random secret key (e.g. `your_secret_key_phrase`).
+   - `DATABASE_PATH`: `/app/data/database.sqlite` (Points SQLite to the mounted persistent storage).
+4. **Configure Persistent Volume (Critical for SQLite)**:
+   By default, container filesystems on Railway are ephemeral. To prevent losing your database and projects when the server restarts or redeploys:
+   - Go to the **Settings** tab of your Node.js service.
+   - Scroll down to the **Volumes** section and click **Add Volume**.
+   - Set **Mount Path** to `/app/data` (this maps directly to the `DATABASE_PATH` env variable).
+   - Save changes.
+5. **Expose Public Domain**:
+   - Under the **Settings** tab of the service, scroll to **Domains**.
+   - Click **Generate Domain** to create a public `https://...` address.
+   - Once build and deployment complete, your app is fully live and accessible!
+
+---
+
+### 2. Alternative: Deploying to Render
 1. Create a new **Web Service** on Render and connect your GitHub repository.
 2. Configure settings:
    - **Environment**: `Node`
    - **Build Command**: `npm install`
    - **Start Command**: `npm start`
-3. Add **Environment Variables** in the Render Dashboard settings:
-   - `PORT`: `10000` (Render binds dynamically, but Express adapts automatically)
-   - `JWT_SECRET`: A long, random string (e.g., generated with `openssl rand -base64 32`)
-4. **Handling the Database (SQLite)**:
-   - Since Render Web Services have ephemeral filesystems, your SQLite database (`database.sqlite`) will reset every time the service restarts.
-   - To make it persistent, add a **Render Disk** and mount it:
-     - **Name**: `sqlite-storage`
-     - **Mount Path**: `/var/data`
-     - **Size**: `1 GB` (minimum tier)
-   - Update your Express db connection configuration in `db.js`:
-     ```javascript
-     // Use the mounted path in production
-     const dbPath = process.env.RENDER
-       ? '/var/data/database.sqlite'
-       : path.join(__dirname, 'database.sqlite');
-     ```
+3. Add **Environment Variables**:
+   - `JWT_SECRET`: A long random string.
+   - `DATABASE_PATH`: `/var/data/database.sqlite`
+4. Add a **Render Disk**:
+   - **Name**: `sqlite-storage`
+   - **Mount Path**: `/var/data`
+   - **Size**: `1 GB`
 
-### 2. Deploying to Heroku
-1. Install the Heroku CLI and login:
-   ```bash
-   heroku login
-   ```
-2. Create a new Heroku app:
-   ```bash
-   heroku create teamflow-task-manager
-   ```
-3. Set your environment configuration variables:
-   ```bash
-   heroku config:set JWT_SECRET=your_super_secret_key
-   ```
-4. Deploy the code:
-   ```bash
-   git push heroku main
-   ```
-   *(Note: SQLite is ephemeral on Heroku. For persistent storage, configure PostgreSQL using the Heroku Postgres Addon and modify `db.js` to connect via `pg` driver instead of `sqlite3`).*
+---
 
-### 3. Deploying to a VPS (DigitalOcean / AWS / Linode)
-1. SSH into your server, install Node.js, git, and a process manager like **PM2**:
+### 3. Alternative: Deploying to a VPS (DigitalOcean / AWS)
+1. SSH into the VPS and install Node.js, Git, and **PM2** globally:
    ```bash
    sudo npm install -g pm2
    ```
-2. Clone your repository into `/var/www/teamflow`:
+2. Clone the repository into `/var/www/teamflow` and install dependencies:
    ```bash
    git clone https://github.com/priya21052005/Ethara_project.git /var/www/teamflow
    cd /var/www/teamflow
    npm install
    ```
-3. Configure environment variables in a `.env` file.
-4. Launch the application with PM2 to keep it running continuously in the background:
+3. Configure your production environment values in a `.env` file.
+4. Launch the application daemon using PM2:
    ```bash
    pm2 start server.js --name "teamflow-server"
    pm2 save
    pm2 startup
    ```
-5. Use **Nginx** as a reverse proxy, forwarding port `80` (HTTP) or `443` (HTTPS) to your local Express server running on port `5000`.
+5. Set up **Nginx** as a reverse proxy forwarding port `80`/`443` to local port `5000`.
